@@ -11,7 +11,7 @@ const {
   MAX_BACKUPS,
   SERVER_NAME,
   LEVEL_NAME,
-  SEED,
+  LEVEL_SEED,
   GAMEMODE,
   DIFFICULTY,
 } = process.env;
@@ -20,7 +20,7 @@ const projectRoot = process.cwd();
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const hash = crypto
   .createHash("sha256")
-  .update(`${SERVER_NAME}${LEVEL_NAME}${SEED}${GAMEMODE}${DIFFICULTY}`)
+  .update(`${SERVER_NAME}${LEVEL_NAME}${LEVEL_SEED}${GAMEMODE}${DIFFICULTY}`)
   .digest("hex")
   .slice(0, 8);
 
@@ -49,7 +49,7 @@ execSync(
 const meta = {
   server_name: SERVER_NAME,
   level_name: LEVEL_NAME,
-  seed: SEED,
+  LEVEL_SEED: LEVEL_SEED,
   gamemode: GAMEMODE,
   difficulty: DIFFICULTY,
   hash_version: hash,

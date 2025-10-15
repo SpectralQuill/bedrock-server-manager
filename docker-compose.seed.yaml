@@ -10,6 +10,7 @@ services:
       GAMEMODE: ${GAMEMODE}
       DIFFICULTY: ${DIFFICULTY}
       LEVEL_NAME: ${LEVEL_NAME}
+      LEVEL_SEED: ${LEVEL_SEED}
     ports:
       - "${SERVER_PORT}:19132/udp"
     volumes:

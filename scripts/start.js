@@ -1,94 +1,240 @@
 import fs from "fs";
 import crypto from "crypto";
+import { execSync, spawn, spawnSync } from "child_process";
+import os from "os";
 import path from "path";
 import dotenv from "dotenv";
-import { execSync } from "child_process";
+import { getLocalIP } from "./utils/getLocalIP.js";
 
 dotenv.config();
-
-const projectRoot = process.cwd();
-const envFilePath = path.join(projectRoot, ".env");
-const envHashFile = path.join(projectRoot, process.env.ENV_HASH_FILE || ".env.hash");
-const backupDir = path.resolve(projectRoot, process.env.BACKUP_DIR || "./backups");
 
 const {
   CONTAINER_NAME,
   SERVER_NAME,
   LEVEL_NAME,
-  SEED,
+  LEVEL_SEED,
   GAMEMODE,
   DIFFICULTY,
+  SERVER_PORT,
   ENABLE_TUNNEL,
   TUNNEL_TYPE,
+  TUNNEL_AUTHTOKEN,
+  TUNNEL_REGION,
+  BACKUP_DIR,
+  ENV_HASH_FILE
 } = process.env;
 
-// Compute full hash of .env
-function getFileHash(file) {
-  const content = fs.readFileSync(file, "utf-8");
-  return crypto.createHash("sha256").update(content).digest("hex");
+const PORT = Number(SERVER_PORT) || 19132;
+const ROOT = path.resolve(".");
+const ENV_FILE = path.join(ROOT, ".env");
+const HASH_FILE = path.resolve(ENV_HASH_FILE || ".env.hash");
+const BACKUPS = path.resolve(BACKUP_DIR || "./backups");
+
+function getHash(file) {
+  return crypto.createHash("sha256").update(fs.readFileSync(file, "utf8")).digest("hex");
 }
 
-// Compute basic config hash (world-related)
-function getWorldConfigHash() {
-  return crypto
-    .createHash("sha256")
-    .update(`${SERVER_NAME}${LEVEL_NAME}${SEED}${GAMEMODE}${DIFFICULTY}`)
-    .digest("hex")
-    .slice(0, 8);
+function containerExists() {
+  try {
+    const list = execSync("docker ps -a --format '{{.Names}}'")
+      .toString()
+      .split("\n")
+      .map(s => s.trim())
+      .filter(Boolean);
+    return list.includes(CONTAINER_NAME);
+  } catch {
+    return false;
+  }
 }
 
-const currentEnvHash = getFileHash(envFilePath);
-let previousEnvHash = fs.existsSync(envHashFile)
-  ? fs.readFileSync(envHashFile, "utf-8").trim()
-  : null;
+function containerRunning() {
+  try {
+    const list = execSync("docker ps --format '{{.Names}}'")
+      .toString()
+      .split("\n")
+      .map(s => s.trim())
+      .filter(Boolean);
+    return list.includes(CONTAINER_NAME);
+  } catch {
+    return false;
+  }
+}
 
-// Compare hashes
-const needsRebuild = !previousEnvHash || previousEnvHash !== currentEnvHash;
+function getLatestBackup() {
+  if (!fs.existsSync(BACKUPS)) return null;
+  const files = fs.readdirSync(BACKUPS).filter(f => f.endsWith(".tar.gz"));
+  if (files.length === 0) return null;
+  return path.join(
+    BACKUPS,
+    files.sort(
+      (a, b) =>
+        fs.statSync(path.join(BACKUPS, b)).mtime -
+        fs.statSync(path.join(BACKUPS, a)).mtime
+    )[0]
+  );
+}
 
-// Check if container exists
-const containerExists =
-  execSync(`docker ps -a --format '{{.Names}}'`)
-    .toString()
-    .split("\n")
-    .includes(CONTAINER_NAME);
+function restoreBackup(backupPath) {
+  console.log(`🗃️  Restoring from backup: ${path.basename(backupPath)}`);
+  fs.mkdirSync("./data", { recursive: true });
+  execSync(`tar -xzf "${backupPath}" -C ./data`);
+}
 
-if (needsRebuild) {
-  console.log("🔄 Environment has changed — renewing container...");
+function attachLogs() {
+  console.log("\n📜 Attaching to container logs (Ctrl+C to stop viewing)...\n");
+  const proc = spawn("docker", ["logs", "-f", CONTAINER_NAME], { stdio: "inherit" });
+  proc.on("close", () => console.log("\n🛑 Log stream ended.\n"));
+}
 
-  if (containerExists) {
-    console.log("🗑️ Removing old container...");
-    execSync(`docker rm -f ${CONTAINER_NAME}`, { stdio: "inherit" });
+function ensureNgrokAuth() {
+  try {
+    const ngrokConfigPath =
+      os.platform() === "win32"
+        ? path.join(os.homedir(), "AppData", "Local", "ngrok", "ngrok.yml")
+        : path.join(os.homedir(), ".config", "ngrok", "ngrok.yml");
+
+    if (!fs.existsSync(ngrokConfigPath) && TUNNEL_AUTHTOKEN) {
+      console.log("🔑 Registering ngrok authtoken...");
+      spawnSync("npx", ["ngrok", "config", "add-authtoken", TUNNEL_AUTHTOKEN], {
+        stdio: "inherit",
+        shell: true
+      });
+    }
+  } catch (err) {
+    console.error("⚠️  Failed to ensure ngrok authentication:", err.message);
+  }
+}
+
+function startNgrokTunnel() {
+  return new Promise((resolve, reject) => {
+    console.log("🌐 Starting ngrok TCP tunnel...");
+    const args = ["tcp", PORT.toString()];
+    if (TUNNEL_REGION) args.push("--region", TUNNEL_REGION);
+    const ngrok = spawn("npx", ["ngrok", ...args], { shell: true });
+
+    let output = "";
+    ngrok.stdout.on("data", d => {
+      const text = d.toString();
+      output += text;
+      const match = text.match(/tcp:\/\/([^\s]+)/);
+      if (match) {
+        const publicAddress = match[1];
+        resolve(publicAddress);
+        console.log(`✅ Tunnel active: tcp://${publicAddress}`);
+      }
+    });
+
+    ngrok.stderr.on("data", d => {
+      console.error(d.toString());
+    });
+
+    ngrok.on("error", err => reject(err));
+    ngrok.on("close", code => {
+      if (!output.includes("tcp://")) reject(new Error(`ngrok exited (code ${code})`));
+    });
+  });
+}
+
+function startLocalTunnel() {
+  return new Promise((resolve, reject) => {
+    console.log("🌐 Starting LocalTunnel...");
+    const lt = spawn("npx", ["localtunnel", "--port", PORT.toString()], { shell: true });
+    lt.stdout.on("data", d => {
+      const text = d.toString();
+      const match = text.match(/https?:\/\/[^\s]+/);
+      if (match) {
+        resolve(match[0]);
+        console.log(`✅ Tunnel active: ${match[0]}`);
+      }
+    });
+    lt.stderr.on("data", d => console.error(d.toString()));
+    lt.on("error", err => reject(err));
+  });
+}
+
+async function setupTunnel() {
+  if (!ENABLE_TUNNEL || ENABLE_TUNNEL.toLowerCase() !== "true") return null;
+  try {
+    if (TUNNEL_TYPE === "ngrok") {
+      ensureNgrokAuth();
+      return await startNgrokTunnel();
+    } else if (TUNNEL_TYPE === "localtunnel") {
+      return await startLocalTunnel();
+    } else {
+      console.error(`⚠️ Unknown tunnel type: ${TUNNEL_TYPE}`);
+      return null;
+    }
+  } catch (err) {
+    console.error("⚠️  Tunnel setup failed:", err.message);
+    return null;
+  }
+}
+
+async function main() {
+  console.log("\n🌍 === Minecraft Bedrock Server Starter ===\n");
+
+  if (!fs.existsSync(ENV_FILE)) {
+    console.error("❌ Missing .env file.");
+    process.exit(1);
   }
 
-  // Find latest backup matching same world config
-  const worldHash = getWorldConfigHash();
-  const backups = fs
-    .readdirSync(backupDir)
-    .filter((f) => f.endsWith(".tar.gz") && f.includes(worldHash))
-    .sort((a, b) => fs.statSync(path.join(backupDir, b)).mtime - fs.statSync(path.join(backupDir, a)).mtime);
+  const currentHash = getHash(ENV_FILE);
+  const oldHash = fs.existsSync(HASH_FILE)
+    ? fs.readFileSync(HASH_FILE, "utf8").trim()
+    : "";
+  const exists = containerExists();
+  const running = containerRunning();
+  const needsRenewal = !exists || currentHash !== oldHash;
 
-  let latestBackup = backups[0];
+  const composeFile =
+    LEVEL_SEED && LEVEL_SEED.trim()
+      ? "docker-compose.seed.yaml"
+      : "docker-compose.yaml";
 
-  if (latestBackup) {
-    console.log(`♻️ Using latest backup: ${latestBackup}`);
-    execSync(`docker compose up -d`, { stdio: "inherit" });
-    execSync(
-      `tar -xzf "${path.join(backupDir, latestBackup)}" -C ./.tmp_restore && docker cp ./.tmp_restore/worlds ${CONTAINER_NAME}:/data && rm -rf ./.tmp_restore`,
-      { shell: "/bin/bash" }
+  if (needsRenewal) {
+    if (exists) {
+      console.log("♻️  Environment changed or missing container. Removing old one...");
+      execSync("docker compose down", { stdio: "inherit" });
+    }
+
+    const backup = getLatestBackup();
+    if (backup) restoreBackup(backup);
+    else console.log("🆕 No backup found — starting fresh world.");
+
+    console.log(
+      `🚀 Creating new container (${LEVEL_SEED ? `SEED=${LEVEL_SEED}` : "random seed"})...`
     );
+
+    execSync(`docker compose -f ${composeFile} up -d`, { stdio: "inherit" });
+
+    fs.writeFileSync(HASH_FILE, currentHash);
+  } else if (!running) {
+    console.log("▶️  Starting existing container...");
+    execSync(`docker start ${CONTAINER_NAME}`, { stdio: "inherit" });
   } else {
-    console.log("🆕 No backups found, starting new world...");
-    execSync(`docker compose up -d`, { stdio: "inherit" });
+    console.log("🟢 Container already running.");
   }
 
-  fs.writeFileSync(envHashFile, currentEnvHash);
-} else {
-  console.log("✅ No env change detected — starting existing container...");
-  execSync(`docker start ${CONTAINER_NAME}`, { stdio: "inherit" });
+  const ip = getLocalIP();
+  console.log("\n📘 Connection Info:");
+  console.log(`- Server Name: ${SERVER_NAME}`);
+  console.log(`- Container: ${CONTAINER_NAME}`);
+  console.log(`- Local IP: ${ip}:${PORT}`);
+
+  const tunnelAddr = await setupTunnel();
+
+  if (tunnelAddr) {
+    console.log("\n🌎 Join from Outside Wi-Fi:");
+    if (tunnelAddr.startsWith("tcp://")) {
+      const [host, port] = tunnelAddr.replace("tcp://", "").split(":");
+      console.log(`- Address: ${host}`);
+      console.log(`- Port: ${port}`);
+    } else {
+      console.log(`- Address: ${tunnelAddr}`);
+    }
+  }
+
+  attachLogs();
 }
 
-// Optional: enable remote tunneling
-if (ENABLE_TUNNEL === "true") {
-  console.log(`🌐 Setting up remote tunnel via ${TUNNEL_TYPE}...`);
-  execSync(`npm run tunnel`, { stdio: "inherit" });
-}
+main();
