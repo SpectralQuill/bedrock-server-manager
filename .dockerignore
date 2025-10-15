@@ -1,22 +1,19 @@
 # ----------------------------
-# Node.js
+# Node / dependencies
 # ----------------------------
-node_modules/
+node_modules
 npm-debug.log*
-yarn-debug.log*
 yarn-error.log*
-package-lock.json
 
 # ----------------------------
 # Environment / secrets
 # ----------------------------
 .env
+.env.*
 .env.hash
-.env.*.local
-.envrc
 
 # ----------------------------
-# Backups and world data
+# Backup and runtime data
 # ----------------------------
 backups/
 .tmp_restore/
@@ -26,31 +23,25 @@ data/
 *.tar.gz.json
 
 # ----------------------------
-# Docker artifacts
+# VCS / local
 # ----------------------------
-*.pid
-*.sock
-docker-compose.override.yml
+.git
+.gitignore
+README.md
+LICENSE
 
 # ----------------------------
-# OS / editor junk
+# Editor / system junk
 # ----------------------------
+.vscode
+.idea
 .DS_Store
 Thumbs.db
 *.swp
 *.swo
-.vscode/
-.idea/
 
 # ----------------------------
-# Logs
+# Logs / misc
 # ----------------------------
 logs/
 *.log
-log.txt
-
-# ----------------------------
-# Miscellaneous
-# ----------------------------
-tmp/
-cache/

@@ -1,0 +1,22 @@
+{
+  "name": "bedrock-server-manager",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A simple Bedrock server manager via Docker.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node scripts/start.js",
+    "stop": "node scripts/stop.js",
+    "remove": "node scripts/remove.js",
+    "reset": "node scripts/reset.js",
+    "info": "node scripts/info.js",
+    "test": "node scripts/test.js"
+  },
+  "author": "Gian Tristian G. Apostol",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "child_process": "latest",
+    "inquirer": "^9.3.7"
+  }
+}
