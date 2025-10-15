@@ -8,7 +8,6 @@ import { getLocalIP } from "./utils/getLocalIP.js";
 dotenv.config();
 
 const CONTAINER_NAME = process.env.CONTAINER_NAME;
-const PORT = Number(process.env.SERVER_PORT || 19132);
 const IS_WINDOWS = os.platform() === "win32";
 
 function ask(question) {

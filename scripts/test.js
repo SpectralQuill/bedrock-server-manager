@@ -18,11 +18,6 @@ function listContainers() {
     .map(s => s.replace(/^['\"]|['\"]$/g, ""));
 }
 
-function containerRunning(name) {
-  const containers = listContainers();
-  return containers.includes(name);
-}
-
 async function pingBedrock(host, port, timeout = 3000) {
   return new Promise((resolve, reject) => {
     const sock = dgram.createSocket("udp4");

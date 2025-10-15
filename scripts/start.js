@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 import dotenv from "dotenv";
 import { getLocalIP } from "./utils/getLocalIP.js";
+import { startPlayitTunnel } from "./lib/playit/playit.js";
 
 dotenv.config();
 
@@ -160,6 +161,8 @@ async function setupTunnel() {
       return await startNgrokTunnel();
     } else if (TUNNEL_TYPE === "localtunnel") {
       return await startLocalTunnel();
+    } else if (TUNNEL_TYPE === "playit") {
+      return await startPlayitTunnel();
     } else {
       console.error(`⚠️ Unknown tunnel type: ${TUNNEL_TYPE}`);
       return null;

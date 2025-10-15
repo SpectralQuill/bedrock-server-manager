@@ -11,7 +11,8 @@ const {
   BACKUP_DIR,
   ENABLE_TUNNEL,
   TUNNEL_TYPE,
-  TUNNEL_AUTHTOKEN
+  TUNNEL_AUTHTOKEN,
+  PLAYIT_TUNNEL_URL
 } = process.env;
 
 function listContainers() {
@@ -41,7 +42,24 @@ function main() {
   if (ENABLE_TUNNEL === "true") {
     console.log("\n🔗 Remote Tunnel Enabled");
     console.log(`Type: ${TUNNEL_TYPE || "localtunnel"}`);
-    console.log(`Auth token present: ${!!TUNNEL_AUTHTOKEN}`);
+    switch (TUNNEL_TYPE) {
+      case "ngrok":
+        console.log(`Auth token present: ${TUNNEL_AUTHTOKEN}`);
+        break;
+      case "playit":
+        if(!PLAYIT_TUNNEL_URL) {
+          console.log("Tunnel not running.");
+          break;
+        }
+        const parts = PLAYIT_TUNNEL_URL.split(":");
+        const host = parts[0];
+        const port = parts[1] || "19132";
+        console.log(`Host: ${host}`);
+        console.log(`Port: ${port}`);
+        console.log(`Full Address: ${PLAYIT_TUNNEL_URL}`);
+        break;
+    }
+    
   } else {
     console.log("\n🔒 Remote tunnel disabled");
   }
